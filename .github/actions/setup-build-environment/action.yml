@@ -39,8 +39,6 @@ runs:
         git clone $AOSP_MIRROR/kernel/prebuilts/build-tools -b $BRANCH --depth 1 kernel-build-tools
 
         # Fetch only the two scripts we actually need (mkbootimg.py + unpack_bootimg.py)
-        # instead of cloning the whole repo. Avoids broken/missing branch names
-        # and transient network errors during full clone.
         rm -rf mkbootimg
         mkdir -p mkbootimg
         MKBOOTIMG_BASE="https://android.googlesource.com/platform/system/tools/mkbootimg/+/refs/heads/main"
@@ -69,13 +67,25 @@ runs:
         echo "UNPACK_BOOTIMG=$GITHUB_WORKSPACE/mkbootimg/unpack_bootimg.py" >> "$GITHUB_ENV"
         echo "BOOT_SIGN_KEY_PATH=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem" >> "$GITHUB_ENV"
         mkdir -p "$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/share/avb"
-        if [ -z "${BOOT_SIGN_KEY:-}" ]; then
-          echo "ERROR: BOOT_SIGN_KEY secret is not set in repository settings"
-          exit 1
-        fi
         KEY_PATH="$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem"
-        printf '%s' "$BOOT_SIGN_KEY" > "$KEY_PATH"
-        if ! head -n 1 "$KEY_PATH" | grep -q 'BEGIN'; then
-          printf '%s' "$BOOT_SIGN_KEY" | base64 -d > "$KEY_PATH"
+
+        # Try secret first, fall back to AOSP public test key (it's publicly distributed for dev builds)
+        if [ -n "${BOOT_SIGN_KEY:-}" ]; then
+          echo "Using BOOT_SIGN_KEY from secrets"
+          printf '%s' "$BOOT_SIGN_KEY" > "$KEY_PATH"
+          if ! head -n 1 "$KEY_PATH" | grep -q 'BEGIN'; then
+            printf '%s' "$BOOT_SIGN_KEY" | base64 -d > "$KEY_PATH"
+          fi
+        elif [ -f "$KEY_PATH" ]; then
+          echo "Using existing testkey from kernel-build-tools"
+        else
+          echo "BOOT_SIGN_KEY not set - downloading AOSP public test key"
+          curl -fsSL "https://android.googlesource.com/platform/external/avb/+/refs/heads/main/test/data/testkey_rsa2048.pem?format=TEXT" \
+            | base64 -d > "$KEY_PATH"
+          if ! head -n 1 "$KEY_PATH" | grep -q 'BEGIN'; then
+            echo "ERROR: failed to fetch AOSP test key"
+            exit 1
+          fi
         fi
         chmod 600 "$KEY_PATH"
+        echo "Boot sign key configured at: $KEY_PATH"
