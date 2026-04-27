@@ -44,7 +44,7 @@ runs:
         git clone $AOSP_MIRROR/kernel/prebuilts/build-tools -b $BRANCH --depth 1 kernel-build-tools
         
         rm -rf mkbootimg
-        git clone https://github.com/aosp-mirror/platform_system_tools_mkbootimg.git mkbootimg
+        git clone https://github.com/LineageOS/android_system_tools_mkbootimg.git mkbootimg --depth 1
 
         echo "AVBTOOL=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/bin/avbtool" >> "$GITHUB_ENV"
         echo "MKBOOTIMG=$GITHUB_WORKSPACE/mkbootimg/mkbootimg.py" >> "$GITHUB_ENV"
