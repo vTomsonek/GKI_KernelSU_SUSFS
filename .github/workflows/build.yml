@@ -176,6 +176,13 @@ jobs:
     - name: Clean Kernel Flags
       uses: ./.github/actions/clean-kernel-flags
 
+    - name: Inject RNDIS USB Configs
+      working-directory: ${{ github.workspace }}
+      run: |
+        echo "CONFIG_USB_CONFIGFS_RNDIS=y" >> wild_gki.fragment
+        echo "CONFIG_USB_CONFIGFS_F_UAC2=y" >> wild_gki.fragment
+        echo "CONFIG_BBG=n" >> wild_gki.fragment
+
     - name: Scan and collect patch rejects
       id: scan
       if: ${{ always() && matrix.variant == 'Normal' }}
