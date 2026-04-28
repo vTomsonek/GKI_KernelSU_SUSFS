@@ -38,29 +38,43 @@ runs:
         BRANCH=main-kernel-2025
         git clone $AOSP_MIRROR/kernel/prebuilts/build-tools -b $BRANCH --depth 1 kernel-build-tools
 
-        # Fetch only the two scripts we actually need (mkbootimg.py + unpack_bootimg.py)
+        # Fetch only the scripts we actually need from mkbootimg repo:
+        # mkbootimg.py, unpack_bootimg.py, and gki/ subdir for GKI certificate generation
         rm -rf mkbootimg
-        mkdir -p mkbootimg
+        mkdir -p mkbootimg/gki
         MKBOOTIMG_BASE="https://android.googlesource.com/platform/system/tools/mkbootimg/+/refs/heads/main"
         MKBOOTIMG_FALLBACK="https://raw.githubusercontent.com/LineageOS/android_system_tools_mkbootimg/lineage-22.0"
-        for f in mkbootimg.py unpack_bootimg.py; do
-          echo "Fetching $f from googlesource..."
-          if curl -fsSL "${MKBOOTIMG_BASE}/${f}?format=TEXT" | base64 -d > "mkbootimg/$f" \
-             && head -1 "mkbootimg/$f" | grep -qE '^#!.*python|^#'; then
+
+        fetch_file() {
+          local rel_path="$1"
+          local out_path="mkbootimg/$rel_path"
+          echo "Fetching $rel_path from googlesource..."
+          if curl -fsSL "${MKBOOTIMG_BASE}/${rel_path}?format=TEXT" | base64 -d > "$out_path" \
+             && [ -s "$out_path" ] \
+             && head -1 "$out_path" | grep -qE '^#!.*python|^#|^"""|^from |^import '; then
             echo "  -> ok (googlesource)"
-          else
-            echo "  googlesource failed, trying LineageOS mirror..."
-            curl -fsSL "${MKBOOTIMG_FALLBACK}/${f}" -o "mkbootimg/$f"
-            if ! head -1 "mkbootimg/$f" | grep -qE '^#!.*python|^#'; then
-              echo "ERROR: could not obtain a valid $f from any source"
-              head -5 "mkbootimg/$f" || true
-              exit 1
-            fi
-            echo "  -> ok (LineageOS)"
+            return 0
           fi
-          chmod +x "mkbootimg/$f"
-        done
+          echo "  googlesource failed, trying LineageOS mirror..."
+          curl -fsSL "${MKBOOTIMG_FALLBACK}/${rel_path}" -o "$out_path"
+          if [ ! -s "$out_path" ] || ! head -1 "$out_path" | grep -qE '^#!.*python|^#|^"""|^from |^import '; then
+            echo "ERROR: could not obtain a valid $rel_path from any source"
+            head -5 "$out_path" || true
+            return 1
+          fi
+          echo "  -> ok (LineageOS)"
+        }
+
+        fetch_file "mkbootimg.py"
+        fetch_file "unpack_bootimg.py"
+        # GKI certificate generation module - needed for boot image creation
+        touch mkbootimg/gki/__init__.py
+        fetch_file "gki/generate_gki_certificate.py"
+
+        chmod +x mkbootimg/mkbootimg.py mkbootimg/unpack_bootimg.py
+        echo "=== mkbootimg layout ==="
         ls -la mkbootimg/
+        ls -la mkbootimg/gki/
 
         echo "AVBTOOL=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/bin/avbtool" >> "$GITHUB_ENV"
         echo "MKBOOTIMG=$GITHUB_WORKSPACE/mkbootimg/mkbootimg.py" >> "$GITHUB_ENV"
@@ -69,7 +83,6 @@ runs:
         mkdir -p "$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/share/avb"
         KEY_PATH="$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem"
 
-        # Try secret first, fall back to AOSP public test key (it's publicly distributed for dev builds)
         if [ -n "${BOOT_SIGN_KEY:-}" ]; then
           echo "Using BOOT_SIGN_KEY from secrets"
           printf '%s' "$BOOT_SIGN_KEY" > "$KEY_PATH"
