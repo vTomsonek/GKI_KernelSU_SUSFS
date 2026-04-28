@@ -176,12 +176,26 @@ jobs:
     - name: Clean Kernel Flags
       uses: ./.github/actions/clean-kernel-flags
 
-    - name: Inject RNDIS USB Configs
+    - name: Inject RNDIS USB Configs and Audio Modules
       working-directory: ${{ github.workspace }}
       run: |
+        # USB ConfigFS - dynamic gadget creation
         echo "CONFIG_USB_CONFIGFS_RNDIS=y" >> wild_gki.fragment
         echo "CONFIG_USB_CONFIGFS_F_UAC2=y" >> wild_gki.fragment
         echo "CONFIG_BBG=n" >> wild_gki.fragment
+
+        # USB Audio Gadget (g_audio.ko) - phone presents itself as UAC2 device on USB
+        echo "CONFIG_USB_GADGET=y" >> wild_gki.fragment
+        echo "CONFIG_USB_LIBCOMPOSITE=m" >> wild_gki.fragment
+        echo "CONFIG_USB_F_UAC1=m" >> wild_gki.fragment
+        echo "CONFIG_USB_F_UAC2=m" >> wild_gki.fragment
+        echo "CONFIG_USB_AUDIO=m" >> wild_gki.fragment
+
+        # Sound Loopback (snd-aloop.ko) - virtual ALSA cable for routing audio
+        echo "CONFIG_SND=y" >> wild_gki.fragment
+        echo "CONFIG_SND_PCM=y" >> wild_gki.fragment
+        echo "CONFIG_SND_DRIVERS=y" >> wild_gki.fragment
+        echo "CONFIG_SND_ALOOP=m" >> wild_gki.fragment
 
     - name: Scan and collect patch rejects
       id: scan
