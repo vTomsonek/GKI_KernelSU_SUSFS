@@ -212,6 +212,32 @@ jobs:
       run: |
         grep -n 'vm_flags_clear' ${{ github.workspace }}/kernel/common/mm/mmap.c || echo 'Not found'
 
+    - name: Patch GKI modules list to include UAC2/aloop modules
+      working-directory: ${{ github.workspace }}/kernel
+      run: |
+        # The GKI build does a strict diff check between common/android/gki_aarch64_modules
+        # and the actual built modules.order. Since we're adding 3 out-of-tree modules,
+        # we need to pre-register them in the manifest before Build Kernel runs.
+        MODULES_FILE="common/android/gki_aarch64_modules"
+        echo "=== Current $MODULES_FILE ==="
+        cat "$MODULES_FILE" 2>/dev/null || echo "(empty or missing)"
+
+        for m in \
+          "drivers/usb/gadget/function/usb_f_uac1.ko" \
+          "drivers/usb/gadget/legacy/g_audio.ko" \
+          "sound/drivers/snd-aloop.ko"; do
+          if ! grep -qxF "$m" "$MODULES_FILE" 2>/dev/null; then
+            echo "$m" >> "$MODULES_FILE"
+            echo "  + added $m"
+          else
+            echo "  = already there: $m"
+          fi
+        done
+
+        echo ""
+        echo "=== Updated $MODULES_FILE ==="
+        cat "$MODULES_FILE"
+
     - name: Build Kernel
       env:
         SOURCE_DATE_EPOCH: ${{ env.SOURCE_DATE_EPOCH }}
