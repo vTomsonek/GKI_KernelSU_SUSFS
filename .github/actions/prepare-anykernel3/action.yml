@@ -1,6 +1,5 @@
 name: 'Prepare AnyKernel3'
-description: 'Copies built Image into AnyKernel3 folder'
-
+description: 'Copies built Image and required kernel modules into AnyKernel3 folder'
 runs:
   using: composite
   steps:
@@ -8,14 +7,60 @@ runs:
       run: |
         set -euo pipefail
 
+        # === Step 1: Copy kernel Image ===
         if [ -f "$GITHUB_WORKSPACE/kernel/out/$ANDROID_VERSION-$KERNEL_VERSION/dist/Image" ]; then
-          cp "$GITHUB_WORKSPACE/kernel/out/$ANDROID_VERSION-$KERNEL_VERSION/dist/Image" "$GITHUB_WORKSPACE/AnyKernel3/Image"
-          exit 0
+          KERNEL_OUT="$GITHUB_WORKSPACE/kernel/out/$ANDROID_VERSION-$KERNEL_VERSION"
+          cp "$KERNEL_OUT/dist/Image" "$GITHUB_WORKSPACE/AnyKernel3/Image"
+          echo "Image copied from out/dist"
+        elif [ -f "$GITHUB_WORKSPACE/kernel/bazel-bin/common/kernel_aarch64/Image" ]; then
+          KERNEL_OUT="$GITHUB_WORKSPACE/kernel/bazel-bin/common/kernel_aarch64"
+          cp "$KERNEL_OUT/Image" "$GITHUB_WORKSPACE/AnyKernel3/Image"
+          echo "Image copied from bazel-bin"
+        else
+          echo "ERROR: kernel Image not found"
+          exit 1
         fi
 
-        if [ -f "$GITHUB_WORKSPACE/kernel/bazel-bin/common/kernel_aarch64/Image" ]; then
-          cp "$GITHUB_WORKSPACE/kernel/bazel-bin/common/kernel_aarch64/Image" "$GITHUB_WORKSPACE/AnyKernel3/Image"
-          exit 0
+        # === Step 2: Collect required kernel modules ===
+        # We need these for the call center USB UAC2 audio routing project:
+        #   g_audio.ko          - USB UAC2 gadget (phone as USB sound card)
+        #   libcomposite.ko     - dependency of g_audio
+        #   usb_f_uac1.ko       - UAC1 function (g_audio dep)
+        #   usb_f_uac2.ko       - UAC2 function (g_audio dep)
+        #   snd-aloop.ko        - ALSA loopback (virtual audio cable)
+        REQUIRED_MODULES=(
+          "g_audio.ko"
+          "libcomposite.ko"
+          "usb_f_uac1.ko"
+          "usb_f_uac2.ko"
+          "snd-aloop.ko"
+        )
+
+        MODULES_DST="$GITHUB_WORKSPACE/AnyKernel3/modules/vendor/lib/modules"
+        mkdir -p "$MODULES_DST"
+
+        echo "=== Searching for kernel modules in $GITHUB_WORKSPACE/kernel/out ==="
+        # All compiled .ko files end up somewhere under kernel/out/
+        FOUND_ANY=0
+        for mod in "${REQUIRED_MODULES[@]}"; do
+          # Find the module anywhere in the build output tree
+          MOD_PATH="$(find "$GITHUB_WORKSPACE/kernel/out" -name "$mod" -type f 2>/dev/null | head -1)"
+          if [ -n "$MOD_PATH" ] && [ -f "$MOD_PATH" ]; then
+            cp "$MOD_PATH" "$MODULES_DST/"
+            echo "  [OK]   $mod  <- $MOD_PATH"
+            FOUND_ANY=1
+          else
+            echo "  [MISS] $mod  (not built - check CONFIG_* flags)"
+          fi
+        done
+
+        if [ "$FOUND_ANY" = "0" ]; then
+          echo "WARNING: no required modules were found. Did you set CONFIG_*=m in wild_gki.fragment?"
         fi
 
-        exit 1
+        echo ""
+        echo "=== Final AnyKernel3 modules layout ==="
+        ls -la "$MODULES_DST" || true
+        echo ""
+        echo "=== AnyKernel3 root layout ==="
+        ls -la "$GITHUB_WORKSPACE/AnyKernel3/"
